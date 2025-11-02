@@ -122,20 +122,56 @@ func (uc *UnifiedClient) WebSocketClose(connectionID *Variant) *Variant {
 
 // getBaseURL 获取基础URL
 func (uc *UnifiedClient) getBaseURL(apiType *Variant) string {
-	urls := *uc.exchange.At(MkString("urls"))
-	api := *urls.At(MkString("api"))
+	// 获取交易所ID，用于判断交易所类型
+	exchangeID := ""
+	if idPtr := uc.exchange.At(MkString("id")); idPtr != nil {
+		id := *idPtr
+		if id.Type != Error {
+			exchangeID = id.ToStr()
+		}
+	}
 
 	if apiType.Type == Undefined {
 		apiType = MkString("public")
 	}
 
 	apiTypeStr := apiType.ToStr()
-	if apiMap, exists := (*api.ToMap())[apiTypeStr]; exists {
-		return (*apiMap).ToStr()
+
+	// 针对Binance交易所，直接使用API URL
+	switch exchangeID {
+	case "binance":
+		// Binance 现货 API
+		if apiTypeStr == "public" {
+			return "https://api.binance.com"
+		}
+	case "binanceusdm":
+		// Binance USD-M 合约 API
+		if apiTypeStr == "fapiPublic" || apiTypeStr == "public" {
+			return "https://fapi.binance.com"
+		}
+	case "binancecoinm":
+		// Binance COIN-M 合约 API
+		if apiTypeStr == "dapiPublic" || apiTypeStr == "public" {
+			return "https://dapi.binance.com"
+		}
+	}
+
+	// 其他交易所：尝试从配置中获取
+	urls := *uc.exchange.At(MkString("urls"))
+	api := *urls.At(MkString("api"))
+
+	// 检查api是否为map类型
+	if api.Type != Map {
+		return ""
+	}
+
+	apiMap := api.ToMap()
+	if apiURL, exists := (*apiMap)[apiTypeStr]; exists {
+		return (*apiURL).ToStr()
 	}
 
 	// 默认使用public API
-	if publicAPI, exists := (*api.ToMap())["public"]; exists {
+	if publicAPI, exists := (*apiMap)["public"]; exists {
 		return (*publicAPI).ToStr()
 	}
 
@@ -144,17 +180,47 @@ func (uc *UnifiedClient) getBaseURL(apiType *Variant) string {
 
 // getWebSocketURL 获取WebSocket URL
 func (uc *UnifiedClient) getWebSocketURL(path *Variant) string {
+	// 获取交易所ID，用于判断交易所类型
+	exchangeID := ""
+	if idPtr := uc.exchange.At(MkString("id")); idPtr != nil {
+		id := *idPtr
+		if id.Type != Error {
+			exchangeID = id.ToStr()
+		}
+	}
+
+	// 针对Binance交易所，直接使用WebSocket URL
+	switch exchangeID {
+	case "binance":
+		// Binance现货WebSocket: wss://stream.binance.com
+		return "wss://stream.binance.com" + path.ToStr()
+	case "binanceusdm":
+		// Binance USD-M合约WebSocket: wss://fstream.binance.com
+		return "wss://fstream.binance.com" + path.ToStr()
+	case "binancecoinm":
+		// Binance COIN-M合约WebSocket: wss://dstream.binance.com
+		return "wss://dstream.binance.com" + path.ToStr()
+	}
+
+	// 其他交易所：尝试从配置中获取
 	urls := *uc.exchange.At(MkString("urls"))
 	api := *urls.At(MkString("api"))
 
+	// 检查api是否为map类型
+	if api.Type != Map {
+		return ""
+	}
+
+	apiMap := api.ToMap()
+
 	// 查找WebSocket API
-	if wsAPI, exists := (*api.ToMap())["ws"]; exists {
+	if wsAPI, exists := (*apiMap)["ws"]; exists {
 		baseURL := (*wsAPI).ToStr()
 		return baseURL + path.ToStr()
 	}
 
 	// 如果没有专门的WebSocket API，尝试使用public API
-	if publicAPI, exists := (*api.ToMap())["public"]; exists {
+	if publicAPI, exists := (*apiMap)["public"]; exists {
 		baseURL := (*publicAPI).ToStr()
 		// 将http替换为ws
 		if len(baseURL) > 4 && baseURL[:4] == "http" {
