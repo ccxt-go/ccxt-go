@@ -23,6 +23,10 @@ func (this *Binancecoinm) Describe(goArgs ...*Variant) *Variant {
 				MkString("https://binance-docs.github.io/apidocs/delivery/en/"),
 				MkString("https://binance-docs.github.io/apidocs/spot/en"),
 			}),
+			"api": MkMap(&VarMap{
+				"dapiPublic":  MkString("https://dapi.binance.com"),
+				"dapiPrivate": MkString("https://dapi.binance.com"),
+			}),
 		}),
 		"options": MkMap(&VarMap{
 			"defaultType":      MkString("delivery"),
