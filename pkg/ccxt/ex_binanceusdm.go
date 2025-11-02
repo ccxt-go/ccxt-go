@@ -1,7 +1,5 @@
 package ccxt
 
-import ()
-
 type Binanceusdm struct {
 	*ExchangeBase
 }
