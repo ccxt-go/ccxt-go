@@ -312,6 +312,9 @@ func (nm *NetworkManager) WebSocketConnect(config *WebSocketConfig) (*WebSocketC
 		return nil, err
 	}
 
+	// 设置读取超时，避免ReadMessage一直阻塞
+	wsConn.SetReadDeadline(time.Now().Add(60 * time.Second))
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	wsConnection := &WebSocketConnection{
@@ -356,14 +359,38 @@ func (ws *WebSocketConnection) handleMessages() {
 		case <-ws.ctx.Done():
 			return
 		default:
+			// 设置读取超时，避免一直阻塞
+			ws.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+
 			_, message, err := ws.conn.ReadMessage()
 			if err != nil {
+				// 检查是否是超时错误
+				if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
+					// 超时错误，继续等待（可能是网络延迟）
+					// 检查是否有订阅者，如果没有订阅者则等待一段时间
+					ws.mu.RLock()
+					hasSubscribers := len(ws.subscribers) > 0
+					ws.mu.RUnlock()
+
+					if !hasSubscribers {
+						// 没有订阅者，等待一段时间后再试
+						time.Sleep(100 * time.Millisecond)
+						continue
+					}
+
+					// 有订阅者但超时，继续尝试
+					continue
+				}
+
 				if ws.reconnect {
 					// 尝试重连
 					go ws.reconnectWebSocket()
 				}
 				return
 			}
+
+			// 更新读取超时（成功读取消息后重置超时）
+			ws.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 
 			// 解析消息
 			var data interface{}
@@ -376,11 +403,15 @@ func (ws *WebSocketConnection) handleMessages() {
 
 			// 广播给所有订阅者
 			ws.mu.RLock()
-			for _, ch := range ws.subscribers {
-				select {
-				case ch <- variant:
-				default:
-					// 如果通道满了，跳过
+			if len(ws.subscribers) > 0 {
+				// 有订阅者，广播消息
+				for _, ch := range ws.subscribers {
+					select {
+					case ch <- variant:
+						// 成功发送
+					default:
+						// 通道满了，跳过（避免阻塞）
+					}
 				}
 			}
 			ws.mu.RUnlock()
